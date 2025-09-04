@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Total MLB Runs Today</title>
+  <style>
+    html,body{margin:0;height:100%;font-family:system-ui,Arial,Helvetica;}
+    .wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:1rem}
+    .big{font-size:16vw;line-height:1;font-weight:800;letter-spacing:-.02em}
+    .meta{opacity:.7}
+    .row{display:flex;gap:1.25rem;flex-wrap:wrap;justify-content:center}
+    .card{padding:.75rem 1rem;border:1px solid #ddd;border-radius:8px}
+    .progress-outer{height:22px;border:1px solid #ddd;border-radius:12px;overflow:hidden;background:#f7f7f7}
+    .progress-inner{height:100%; transition: width .35s ease-out;}
+    .ticker{width:min(1100px,96%);overflow:hidden;border:1px solid #ddd;border-radius:8px;background:#fff;height:38px;display:flex;align-items:center;}
+    .ticker__track{display:inline-flex;gap:24px;white-space:nowrap;will-change:transform;animation:ticker-move 35s linear infinite;padding:0 .75rem;font-size:15px;}
+    .ticker__item{display:inline-flex;align-items:center;gap:8px;}
+    .ticker__pill{font-size:12px;opacity:.7;border:1px solid #eee;border-radius:20px;padding:2px 8px;}
+    @keyframes ticker-move{from{transform:translateX(0)} to{transform:translateX(-50%)}}
+    .ticker__track.noscroll{animation:none !important;transform:none !important;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="big" id="total">—</div>
+
+  <div class="row">
+    <div class="card">Games counted: <span id="games">—</span></div>
+    <div class="card">Date (PT): <span id="date">—</span></div>
+    <div class="card meta">Last update: <span id="updated">—</span></div>
+  </div>
+
+  <div class="row">
+    <div class="card">Projected total (juice-adjusted): <span id="proj">—</span></div>
+    <div class="card">Band (±1σ): <span id="band">—</span></div>
+    <div class="card meta">Market lean: <span id="lean">—</span></div>
+  </div>
+
+  <div style="width:min(900px,92%);margin:0 auto;">
+    <div class="meta" style="margin:.25rem 0 .5rem;">Actual vs Projected</div>
+    <div class="progress-outer"><div class="progress-inner" id="bar" style="width:0%"></div></div>
+    <div class="row" style="justify-content:space-between;margin-top:.4rem;">
+      <div class="meta">Actual: <span id="actual">0</span></div>
+      <div class="meta">Projected: <span id="proj2">—</span> (<span id="pct">0%</span>)</div>
+    </div>
+  </div>
+
+  <div class="ticker" id="ticker"><div class="ticker__track" id="tickerTrack"></div></div>
+
+  <div class="card" id="oulist" style="max-width:1100px;text-align:left"></div>
+</div>
+
+<script>
+function fmtPT(d){
+  return new Intl.DateTimeFormat('en-US',{ timeZone:'America/Los_Angeles', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(d);
+}
+async function getActual(){ const r = await fetch(`/api/total-runs`); if(!r.ok) throw new Error('actual'); return r.json(); }
+async function getProj(){ const r = await fetch(`/api/projected-runs`); if(!r.ok) throw new Error('proj'); return r.json(); }
+async function getBoard(){ const r = await fetch(`/api/scoreboard`); if(!r.ok) throw new Error('board'); return r.json(); }
+function setText(id, v){ document.getElementById(id).textContent = v; }
+
+async function refreshAll(){
+  try{
+    const [a,p] = await Promise.all([getActual(), getProj()]);
+    const actual = a.totalRuns ?? 0;
+    const projAdj = p.projectedRuns ?? 0;
+    const projRaw = p.projectedRuns_raw ?? projAdj;
+    const low = p.bandLow ?? projAdj;
+    const high = p.bandHigh ?? projAdj;
+    const leanRuns = (projAdj - projRaw);
+
+    setText('total', actual);
+    setText('actual', actual);
+    setText('games', a.gamesCount ?? '0');
+    setText('date', a.date ?? '—');
+    setText('updated', fmtPT(new Date()));
+
+    setText('proj', Number(projAdj).toFixed(1));
+    setText('proj2', Number(projAdj).toFixed(1));
+    setText('band', `${Number(low).toFixed(1)} – ${Number(high).toFixed(1)}`);
+    setText('lean', `${leanRuns>=0?'+':''}${Number(leanRuns).toFixed(1)} runs`);
+
+    const pct = projAdj>0 ? Math.min(150,(actual/projAdj)*100) : 0;
+    document.getElementById('bar').style.width = `${pct.toFixed(1)}%`;
+    setText('pct', `${(actual&&projAdj)? pct.toFixed(0):0}%`);
+
+    document.getElementById('oulist').textContent =
+      (p.games||[]).map(g => {
+        const adj = g.consensus_total_adj ?? g.consensus_total;
+        const delta = adj - g.consensus_total;
+        const dstr = (isFinite(delta) && !Number.isNaN(delta)) ? ` (adj ${delta>=0?'+':''}${delta.toFixed(2)})` : '';
+        return `${g.away_team || g.away} @ ${g.home_team || g.home}: ${Number(adj).toFixed(2)}${dstr} (n=${g.bookmakers_count}, ${g.status})`;
+      }).join(' · ');
+  }catch(e){ console.error(e); }
+}
+
+function formatItem(it){ return `${it.away} ${it.as} — ${it.home} ${it.hs}  |  ${it.tag}`; }
+async function refreshTicker(){
+  try{
+    const j = await getBoard();
+    const items = j.items || [];
+    const track = document.getElementById('tickerTrack');
+    const ticker = document.getElementById('ticker');
+    if (!track || !ticker) return;
+
+    const nodes = items.map(it => {
+      const div = document.createElement('div');
+      div.className = 'ticker__item';
+      div.textContent = formatItem(it);
+      const pill = document.createElement('span');
+      pill.className = 'ticker__pill';
+      pill.textContent = it.state;
+      div.appendChild(pill);
+      return div;
+    });
+
+    track.innerHTML = '';
+    for (let i=0;i<2;i++) nodes.forEach(n => track.appendChild(n.cloneNode(true)));
+
+    if (track.scrollWidth <= ticker.clientWidth) {
+      track.classList.add('noscroll');
+    } else {
+      track.classList.remove('noscroll');
+    }
+
+    if (!ticker._hoverBound){
+      ticker.addEventListener('mouseenter', () => track.style.animationPlayState = 'paused');
+      ticker.addEventListener('mouseleave', () => track.style.animationPlayState = 'running');
+      ticker._hoverBound = true;
+    }
+  }catch(e){ console.error(e); }
+}
+
+refreshAll();
+refreshTicker();
+setInterval(refreshAll, 15000);
+setInterval(refreshTicker, 15000);
+</script>
+</body>
+</html>
