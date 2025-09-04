@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Total MLB Runs Today</title>
+  <style>
+    html,body{margin:0;height:100%;font-family:system-ui,Arial,Helvetica;}
+    .wrap{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:1rem}
+    .big{font-size:16vw;line-height:1;font-weight:800;letter-spacing:-.02em}
+    .meta{opacity:.7}
+    .row{display:flex;gap:1.25rem;flex-wrap:wrap;justify-content:center}
+    .card{padding:.75rem 1rem;border:1px solid #ddd;border-radius:8px}
+    .progress-outer{height:22px;border:1px solid #ddd;border-radius:12px;overflow:hidden;background:#f7f7f7}
+    .progress-inner{height:100%; transition: width .35s ease-out;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="big" id="total">—</div>
+  <div class="row">
+    <div class="card">Games counted: <span id="games">—</span></div>
+    <div class="card">Date (PT): <span id="date">—</span></div>
+    <div class="card meta">Last update: <span id="updated">—</span></div>
+  </div>
+
+  <div class="row">
+    <div class="card">Projected total (consensus O/U, live-aware): <span id="proj">—</span></div>
+    <div class="card">Band (±1σ): <span id="band">—</span></div>
+  </div>
+
+  <div style="width: min(900px, 92%); margin: 0 auto;">
+    <div class="meta" style="margin:.25rem 0 .5rem;">Actual vs Projected</div>
+    <div class="progress-outer">
+      <div class="progress-inner" id="bar" style="width:0%"></div>
+    </div>
+    <div class="row" style="justify-content:space-between; margin-top:.4rem;">
+      <div class="meta">Actual: <span id="actual">0</span></div>
+      <div class="meta">Projected: <span id="proj2">—</span> (<span id="pct">0%</span>)</div>
+    </div>
+  </div>
+
+  <div class="card" id="oulist" style="max-width:900px; text-align:left"></div>
+</div>
+
+<script>
+function fmtPT(d){
+  return new Intl.DateTimeFormat('en-US',{
+    timeZone:'America/Los_Angeles',
+    hour:'2-digit', minute:'2-digit', second:'2-digit'
+  }).format(d);
+}
+
+async function getActual(){
+  const r = await fetch(`/api/total-runs`);
+  if(!r.ok) throw new Error('actual fetch');
+  return r.json();
+}
+async function getProj(){
+  const r = await fetch(`/api/projected-runs`);
+  if(!r.ok) throw new Error('proj fetch');
+  return r.json();
+}
+
+async function refreshAll(){
+  try{
+    const [a, p] = await Promise.all([getActual(), getProj()]);
+
+    const actual = a.totalRuns ?? 0;
+    const proj   = p.projectedRuns ?? 0;
+    const low    = p.bandLow ?? proj;
+    const high   = p.bandHigh ?? proj;
+
+    document.getElementById('total').textContent = actual;
+    document.getElementById('actual').textContent = actual;
+    document.getElementById('games').textContent = a.gamesCount ?? '0';
+    document.getElementById('date').textContent  = a.date ?? '—';
+    document.getElementById('updated').textContent = fmtPT(new Date());
+
+    document.getElementById('proj').textContent = proj.toFixed(1);
+    document.getElementById('proj2').textContent = proj.toFixed(1);
+    document.getElementById('band').textContent = `${low.toFixed(1)} – ${high.toFixed(1)}`;
+
+    const pct = proj > 0 ? Math.min(150, (actual / proj) * 100) : 0;
+    document.getElementById('bar').style.width = `${pct.toFixed(1)}%`;
+    document.getElementById('pct').textContent = `${(actual && proj)? pct.toFixed(0) : 0}%`;
+
+    // compact per-game transparency
+    const lines = (p.games || []).map(g =>
+      `${g.away_team} @ ${g.home_team}: ${g.consensus_total} (n=${g.bookmakers_count}, ${g.status})`
+    ).join(' · ');
+    document.getElementById('oulist').textContent = lines || '';
+  }catch(e){
+    console.error(e);
+  }
+}
+
+refreshAll();
+setInterval(refreshAll, 15000); // actuals every 15s
+</script>
+</body>
+</html>
