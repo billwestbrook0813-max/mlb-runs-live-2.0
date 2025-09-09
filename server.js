@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 3000;
 const TZ = "America/Los_Angeles";
 
 const PROJ_TTL_MS = 10 * 60 * 1000; // cache 10 min
-const WINDOW_START_PT = 9;
+const WINDOW_START_PT = 6;
 const WINDOW_END_PT   = 21;
 const LIVE_RECENT_MIN = 15;
 const JUICE_TO_RUNS   = 0.60;
