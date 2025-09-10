@@ -5,6 +5,6 @@
 
 ## Run
 npm install
-export ODDS_API_KEY=your_key_here
+export ODDS_API_KEY=3b944e2e0fb3ea4718ed5ebf25f221b9
 npm start
 open http://localhost:3000
