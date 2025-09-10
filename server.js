@@ -228,4 +228,43 @@ app.get("/api/two-numbers", async (_req, res) => {
     const out = {
       datePT: payload.datePT,
       totalRunsScored: Number(payload.actualRunsToday ?? 0),           // Total number of actual runs scored so far today
-      projectedSlateFinish: Number(payload.projectedFinish ?? 0),      // Actual + expected remaining (live/pre with de-vi
+      projectedSlateFinish: Number(payload.projectedFinish ?? 0),      // Actual + expected remaining (live/pre with de-vig)
+      lastUpdateUtc: payload.lastUpdateUtc
+    };
+    res.json(out);
+  } catch (e) {
+    res.status(502).json({ error: String(e) });
+  }
+});
+
+// Ticker/scoreboard
+app.get("/api/scoreboard", async (req, res) => {
+  const date = req.query.date || todayPT();
+  const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}&hydrate=linescore,team,game,flags,status`;
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": "SalamiSlider/1.3" } });
+    if (!r.ok) throw new Error(`MLB upstream ${r.status}`);
+    const data = await r.json();
+    const games = data?.dates?.[0]?.games ?? [];
+    const items = games.map((g) => {
+      const home = g.teams?.home?.team?.abbreviation || g.teams?.home?.team?.name || "HOME";
+      const away = g.teams?.away?.team?.abbreviation || g.teams?.away?.team?.name || "AWAY";
+      const hs = g.linescore?.teams?.home?.runs ?? 0;
+      const as = g.linescore?.teams?.away?.runs ?? 0;
+      const state = g.status?.abstractGameState;
+      const detailed = g.status?.detailedState;
+      let tag = "";
+      if (state === "Preview") tag = "Scheduled";
+      else if (state === "Live") { const inning = g.linescore?.currentInning; const half = g.linescore?.isTopInning ? "Top" : "Bot"; const outs = g.linescore?.outs ?? 0; tag = `${half} ${inning}, ${outs} out${outs === 1 ? "" : "s"}`; }
+      else if (state === "Final") { const ord = g.linescore?.currentInningOrdinal || "F"; tag = ord; }
+      else tag = detailed || state || "";
+      return { id: g.gamePk, away, as, home, hs, state, tag };
+    });
+    const ord = (s) => (s === "Live" ? 0 : s === "Preview" ? 1 : 2);
+    items.sort((a, b) => ord(a.state) - ord(b.state));
+    res.json({ date, items, lastUpdateUtc: new Date().toISOString() });
+  } catch (e) { res.status(502).json({ error: String(e) }); }
+});
+
+app.listen(PORT, () => console.log(`Server listening on http://localhost:${PORT}`));
+
