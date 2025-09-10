@@ -111,17 +111,29 @@ app.get("/api/projected-runs", async (_req, res) => {
       const allPts = [], allAdjPts = [], livePts = [], liveAdjPts = [];
 
       for (const bk of ev.bookmakers ?? []) {
-        const m = (bk.markets ?? []).find(x => x.key === "totals"); if (!m) continue;
-        const over  = (m.outcomes ?? []).find(o => /over/i.test(o.name));
-        const under = (m.outcomes ?? []).find(o => /under/i.test(o.name));
-        const pt = over?.point ?? under?.point; if (typeof pt !== "number") continue;
-        const pOverRaw  = americanToProb(over?.price);
-        const pUnderRaw = americanToProb(under?.price);
-        const dv = devigTwoWay(pOverRaw, pUnderRaw);
-        const skew = dv ? (dv.pOver - 0.5) : 0;
-        const adjPoint = pt + skew * JUICE_TO_RUNS;
-        allPts.push(pt); allAdjPts.push(adjPoint);
-        if (started) { const lastUpd = m.last_update || bk.last_update || null; if (recent(lastUpd)) { livePts.push(pt); liveAdjPts.push(adjPoint); } }
+        const m = (bk.markets ?? []).find(x => x.key === "totals");
+        if (!m) continue;
+        const grouped = new Map();
+        for (const o of m.outcomes ?? []) {
+          const key = o.point;
+          if (typeof key !== "number") continue;
+          const g = grouped.get(key) || {};
+          if (/over/i.test(o.name)) g.over = o;
+          else if (/under/i.test(o.name)) g.under = o;
+          grouped.set(key, g);
+        }
+        for (const [pt, g] of grouped.entries()) {
+          const pOverRaw  = americanToProb(g.over?.price);
+          const pUnderRaw = americanToProb(g.under?.price);
+          const dv = devigTwoWay(pOverRaw, pUnderRaw);
+          const skew = dv ? (dv.pOver - 0.5) : 0;
+          const adjPoint = pt + skew * JUICE_TO_RUNS;
+          allPts.push(pt); allAdjPts.push(adjPoint);
+          if (started) {
+            const lastUpd = m.last_update || bk.last_update || null;
+            if (recent(lastUpd)) { livePts.push(pt); liveAdjPts.push(adjPoint); }
+          }
+        }
       }
 
       const usedRaw = (started && livePts.length) ? livePts : allPts;
@@ -151,10 +163,6 @@ app.get("/api/projected-runs", async (_req, res) => {
       });
     }
 
-    // Rollups from the SAME game set
-    const sumAdjAll = Number(games.reduce((s,g)=> s + (g.consensus_total_adj ?? g.consensus_total), 0).toFixed(2));
-    const projectedRuns = Number(sumAdjAll.toFixed(1)); // headline projection (consistent)
-
     const actualRunsToday = mlbGames.reduce((s, g) => s + (g.runsNow || 0), 0);
 
     const remainingExpected = Number(
@@ -163,16 +171,8 @@ app.get("/api/projected-runs", async (_req, res) => {
 
     const projectedFinish = Number((actualRunsToday + remainingExpected).toFixed(2));
 
-    const projectedStd  = Number(Math.sqrt(games.reduce((s, g) => s + (g.consensus_std ** 2 || 0), 0)).toFixed(1));
-    const bandLow  = Number((projectedRuns - projectedStd).toFixed(1));
-    const bandHigh = Number((projectedRuns + projectedStd).toFixed(1));
-
     const payload = {
       datePT: today,
-      projectedRuns_raw: projectedRuns,
-      projectedRuns,
-      projectedStd, bandLow, bandHigh,
-      gameCountUsed: games.length,
       games,
       actualRunsToday,
       remainingExpected,

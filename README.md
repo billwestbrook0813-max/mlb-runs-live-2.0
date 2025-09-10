@@ -1,6 +1,6 @@
-# Salami Slider — Consistent Projection Build
-* Headline projected total uses the same game set as the finish number.
-* Projected Finish = Actual today + Expected remaining (per game: max(0, adj total − current runs)).
+# Salami Slider — Projected Slate Finish
+* Projected slate finish = Actual today + Expected remaining (per game: max(0, vig-adjusted total − current runs)).
+* Uses closing and live sportsbook totals (including alternate lines) with implied-probability adjustments.
 * Stronger MLB/Odds game matching + diagnostics.
 
 ## Run

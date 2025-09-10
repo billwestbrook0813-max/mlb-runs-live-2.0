@@ -22,8 +22,6 @@
     .card .label{color:#ffd34a;text-transform:uppercase;letter-spacing:1px;font-size:12px}
     .big{font-size:clamp(72px,18vw,180px);line-height:1}
     .submeta{color:var(--muted);font-family:system-ui,Arial;font-weight:600;letter-spacing:.3px}
-    .progress-outer{height:28px;border-radius:999px;border:2px solid #3a3f49;background:linear-gradient(180deg,#0f1116,#181b23);overflow:hidden;box-shadow:inset 0 6px 18px rgba(0,0,0,.5),0 8px 20px rgba(0,0,0,.35)}
-    .progress-inner{height:100%;background:linear-gradient(90deg,#ffd34a,#ff6a3d,#ff2d2d);box-shadow:inset 0 6px 12px rgba(0,0,0,.25),0 0 20px rgba(255,45,45,.35),0 0 60px rgba(255,211,74,.22);transition:width .35s ease-out}
     .ticker{grid-column:1 / -1;height:46px;border-radius:10px;overflow:hidden;border:2px solid #3a3f49;background:linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.55)),linear-gradient(90deg, #c00 0 40%, #111 40% 100%);display:flex;align-items:center}
     .ticker__track{display:inline-flex;gap:30px;white-space:nowrap;will-change:transform;padding:0 .75rem;animation:ticker-move 30s linear infinite;font-family:"Oswald","Anton","Impact",sans-serif;font-weight:700;letter-spacing:.3px}
     .ticker__track.noscroll{animation:none !important;transform:none !important}
@@ -47,31 +45,13 @@
     </div>
 
     <section class="cards">
-      <div class="card span-7">
+      <div class="card span-12">
         <div class="label">Total MLB Runs Today</div>
         <div class="big" id="total">—</div>
         <div class="submeta" style="margin-top:.6rem; display:flex; gap:10px; flex-wrap:wrap;">
           <div>Games: <b id="games">—</b></div><div>•</div>
           <div>Date (PT): <b id="date">—</b></div><div>•</div>
           <div>Last update: <span id="updated">—</span></div>
-        </div>
-      </div>
-
-      <div class="card span-5">
-        <div class="label">Projected Total (juice-adjusted)</div>
-        <div style="display:flex; justify-content:space-between; align-items:flex-end">
-          <div style="font-size:44px; font-weight:900" id="proj">—</div>
-          <div class="submeta" style="text-align:right">
-            <div>Band (±1σ): <b id="band">—</b></div>
-            <div>Market lean: <b id="lean">—</b></div>
-          </div>
-        </div>
-
-        <div class="submeta" style="margin:.6rem 0 .35rem">Actual vs Projected</div>
-        <div class="progress-outer"><div class="progress-inner" id="bar" style="width:0%"></div></div>
-        <div class="submeta" style="display:flex; justify-content:space-between; margin-top:.45rem;">
-          <div>Actual: <b id="actual">0</b></div>
-          <div>Projected: <b id="proj2">—</b> (<span id="pct">0%</span>)</div>
         </div>
       </div>
 
@@ -133,34 +113,17 @@
     async function refreshAll(){
       try{
         const [a,p] = await Promise.all([getActual(), getProj()]);
-        const actual  = a.totalRuns ?? 0;
-        const projAdj = p.projectedRuns ?? 0;
-        const projRaw = p.projectedRuns_raw ?? projAdj;
-        const low     = p.bandLow ?? projAdj;
-        const high    = p.bandHigh ?? projAdj;
-        const leanRuns = (projAdj - projRaw);
+        const actual = a.totalRuns ?? 0;
 
         setText('total', actual);
-        setText('actual', actual);
         setText('games', a.gamesCount ?? '0');
         setText('date', a.date ?? '—');
         setText('updated', fmtPT(new Date()));
 
-        setText('proj', (Number(projAdj)||0).toFixed(1));
-        setText('proj2', (Number(projAdj)||0).toFixed(1));
-        setText('band', `${Number(low).toFixed(1)} – ${Number(high).toFixed(1)}`);
-        setText('lean', `${leanRuns>=0?'+':''}${Number(leanRuns).toFixed(1)} runs`);
-
-        const pct = projAdj>0 ? Math.min(150,(actual/projAdj)*100) : 0;
-        document.getElementById('bar').style.width = `${pct.toFixed(1)}%`;
-        setText('pct', `${(actual&&projAdj)? pct.toFixed(0):0}%`);
-
-        // Finish
         setText('projFinish', (Number(p.projectedFinish)||0).toFixed(2));
         setText('actualToday', Number(p.actualRunsToday||0).toFixed(0));
         setText('remainingExp', Number(p.remainingExpected||0).toFixed(2));
 
-        // OU list
         $('oulist').textContent =
           (p.games||[]).map(g => {
             const adj = g.consensus_total_adj ?? g.consensus_total;
