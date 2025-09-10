@@ -100,7 +100,7 @@
     const $ = (id)=>document.getElementById(id);
     const setText=(id,v)=>($(id).textContent=v);
     function fmtPT(d){ return new Intl.DateTimeFormat('en-US',{ timeZone:'America/Los_Angeles', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(d); }
-    async function getActual(){ const r = await fetch(`/api/total-runs`); if(!r.ok) throw new Error('actual'); return r.json(); }
+    async function getTwoNumbers(){ const r = await fetch(`/api/two-numbers`); if(!r.ok) throw new Error('two'); return r.json(); }
     async function getProj(){ const r = await fetch(`/api/projected-runs`); if(!r.ok) throw new Error('proj'); return r.json(); }
     async function getBoard(){ const r = await fetch(`/api/scoreboard`); if(!r.ok) throw new Error('board'); return r.json(); }
 
@@ -132,35 +132,31 @@
 
     async function refreshAll(){
       try{
-        const [a,p] = await Promise.all([getActual(), getProj()]);
-        const actual  = a.totalRuns ?? 0;
-        const projAdj = p.projectedRuns ?? 0;
-        const projRaw = p.projectedRuns_raw ?? projAdj;
-        const low     = p.bandLow ?? projAdj;
-        const high    = p.bandHigh ?? projAdj;
-        const leanRuns = (projAdj - projRaw);
+        const t = await getTwoNumbers();
+        const actual = t.totalRunsScored ?? 0;
+        const finish = t.projectedSlateFinish ?? 0;
 
         setText('total', actual);
         setText('actual', actual);
-        setText('games', a.gamesCount ?? '0');
-        setText('date', a.date ?? '—');
+        setText('date', t.datePT ?? '—');
         setText('updated', fmtPT(new Date()));
 
-        setText('proj', (Number(projAdj)||0).toFixed(1));
-        setText('proj2', (Number(projAdj)||0).toFixed(1));
-        setText('band', `${Number(low).toFixed(1)} – ${Number(high).toFixed(1)}`);
-        setText('lean', `${leanRuns>=0?'+':''}${Number(leanRuns).toFixed(1)} runs`);
+        setText('proj', (Number(finish)||0).toFixed(1));
+        setText('proj2', (Number(finish)||0).toFixed(1));
 
-        const pct = projAdj>0 ? Math.min(150,(actual/projAdj)*100) : 0;
+        const pct = finish>0 ? Math.min(150,(actual/finish)*100) : 0;
         document.getElementById('bar').style.width = `${pct.toFixed(1)}%`;
-        setText('pct', `${(actual&&projAdj)? pct.toFixed(0):0}%`);
+        setText('pct', `${(actual&&finish)? pct.toFixed(0):0}%`);
 
-        // Finish
-        setText('projFinish', (Number(p.projectedFinish)||0).toFixed(2));
-        setText('actualToday', Number(p.actualRunsToday||0).toFixed(0));
-        setText('remainingExp', Number(p.remainingExpected||0).toFixed(2));
+        setText('projFinish', (Number(finish)||0).toFixed(2));
+        setText('actualToday', Number(actual).toFixed(0));
+        setText('remainingExp', Number(finish - actual).toFixed(2));
+      }catch(e){ console.error(e); }
+    }
 
-        // OU list
+    async function refreshConsensus(){
+      try{
+        const p = await getProj();
         $('oulist').textContent =
           (p.games||[]).map(g => {
             const adj = g.consensus_total_adj ?? g.consensus_total;
@@ -171,9 +167,10 @@
       }catch(e){ console.error(e); }
     }
 
-    refreshAll(); refreshTicker();
+    refreshAll(); refreshTicker(); refreshConsensus();
     setInterval(refreshAll, 15000);
     setInterval(refreshTicker, 15000);
+    setInterval(refreshConsensus, 600000);
   </script>
 </body>
 </html>
