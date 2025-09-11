@@ -4,10 +4,16 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "lint": "ESLINT_USE_FLAT_CONFIG=false eslint --config .eslintrc.json . && prettier --check .",
+    "test": "node test/compute.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
     "undici": "^6.19.8"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5"
   }
 }
