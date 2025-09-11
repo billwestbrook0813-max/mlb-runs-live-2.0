@@ -10,7 +10,7 @@ const PORT = 3001;
 test('server responds to /health', async (t) => {
   const proc = spawn('node', ['server.js'], {
     env: { ...process.env, PORT },
-    stdio: 'ignore'
+    stdio: 'ignore',
   });
   t.after(() => proc.kill());
 

@@ -1,25 +1,25 @@
 // server.js — Consistent projections + projected finish
-import express from "express";
-import { fetch } from "undici";
+import express from 'express';
+import { fetch } from 'undici';
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TZ = "America/Los_Angeles";
+const TZ = 'America/Los_Angeles';
 const PROJ_TTL_MS = 10 * 60 * 1000;
 const WINDOW_START_PT = 9;
 const WINDOW_END_PT   = 21;
 const LIVE_RECENT_MIN = 15;
 const JUICE_TO_RUNS   = 0.60;
-const fmtPT = (opts) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ, ...opts });
-const todayPT = () => fmtPT({ year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
-const hourPT = () => Number(fmtPT({ hour: "2-digit", hour12: false }).format(new Date()));
+const fmtPT = (opts) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, ...opts });
+const todayPT = () => fmtPT({ year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const hourPT = () => Number(fmtPT({ hour: '2-digit', hour12: false }).format(new Date()));
 const inWindow = (h = hourPT()) => h >= WINDOW_START_PT && h < WINDOW_END_PT;
-const samePTDay = (iso) => fmtPT({ year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)) === todayPT();
+const samePTDay = (iso) => fmtPT({ year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso)) === todayPT();
 const recent = (iso) => { if (!iso) return false; const ageMin = (Date.now() - new Date(iso).getTime()) / 60000; return ageMin <= LIVE_RECENT_MIN; };
 const mean = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0;
 const std  = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1)); };
 function americanToProb(american) { if (american == null) return null; const a = Number(american); if (Number.isNaN(a)) return null; return a < 0 ? (-a) / ((-a) + 100) : 100 / (a + 100); }
 function devigTwoWay(pOverRaw, pUnderRaw) { if (pOverRaw == null || pUnderRaw == null) return null; const sum = pOverRaw + pUnderRaw; if (sum <= 0) return null; return { pOver: pOverRaw / sum, pUnder: pUnderRaw / sum }; }
-const norm = (s) => (s||"").toLowerCase().replace(/[^a-z]/g,"");
+const norm = (s) => (s||'').toLowerCase().replace(/[^a-z]/g,'');
 function computeTwoNumbers(games) {
   let totalRunsScored = 0;
   let projectedSlateFinish = 0;
@@ -34,22 +34,22 @@ function computeTwoNumbers(games) {
       const pUnderRaw = americanToProb(under?.price);
       const dv = devigTwoWay(pOverRaw, pUnderRaw);
       const skew = dv ? (dv.pOver - 0.5) : 0;
-      if (typeof pt === "number") pts.push(pt + skew * JUICE_TO_RUNS);
+      if (typeof pt === 'number') pts.push(pt + skew * JUICE_TO_RUNS);
     }
     const consensus = pts.length ? pts.reduce((s,x)=>s+x,0)/pts.length : g.runsSoFar || 0;
-    const remain = g.state === "Final" ? 0 : Math.max(0, consensus - g.runsSoFar);
+    const remain = g.state === 'Final' ? 0 : Math.max(0, consensus - g.runsSoFar);
     g.consensusTotal = Number(consensus.toFixed(2));
     projectedSlateFinish += g.runsSoFar + remain;
   }
   return { totalRunsScored, projectedSlateFinish: Number(projectedSlateFinish.toFixed(2)), games };
 }
-app.use(express.static("public"));
-app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
-app.get("/api/total-runs", async (req, res) => {
+app.use(express.static('public'));
+app.get('/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+app.get('/api/total-runs', async (req, res) => {
   const date = req.query.date || todayPT();
   const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}&hydrate=linescore`;
   try {
-    const r = await fetch(url, { headers: { "User-Agent": "SalamiSlider/1.2" } });
+    const r = await fetch(url, { headers: { 'User-Agent': 'SalamiSlider/1.2' } });
     if (!r.ok) throw new Error(`MLB upstream ${r.status}`);
     const data = await r.json();
     const games = data?.dates?.[0]?.games ?? [];
@@ -62,21 +62,21 @@ app.get("/api/total-runs", async (req, res) => {
   } catch (e) { res.status(502).json({ error: String(e) }); }
 });
 let projCache = { ts: 0, payload: null };
-app.get("/api/projected-runs", async (_req, res) => {
+app.get('/api/projected-runs', async (_req, res) => {
   const now = Date.now();
   if (projCache.payload && now - projCache.ts < PROJ_TTL_MS) return res.json(projCache.payload);
-  if (!inWindow()) { if (projCache.payload) return res.json(projCache.payload); return res.json({ error: "Projection updates only between 09:00–21:00 PT" }); }
+  if (!inWindow()) { if (projCache.payload) return res.json(projCache.payload); return res.json({ error: 'Projection updates only between 09:00–21:00 PT' }); }
   const ODDS_API_KEY = process.env.ODDS_API_KEY;
-  if (!ODDS_API_KEY) return res.status(500).json({ error: "Missing ODDS_API_KEY" });
-  const oddsUrl = new URL("https://api.the-odds-api.com/v4/sports/baseball_mlb/odds");
-  oddsUrl.searchParams.set("regions", "us"); oddsUrl.searchParams.set("markets", "totals,alternate_totals");
-  oddsUrl.searchParams.set("oddsFormat", "american"); oddsUrl.searchParams.set("dateFormat", "iso");
-  oddsUrl.searchParams.set("apiKey", ODDS_API_KEY);
+  if (!ODDS_API_KEY) return res.status(500).json({ error: 'Missing ODDS_API_KEY' });
+  const oddsUrl = new URL('https://api.the-odds-api.com/v4/sports/baseball_mlb/odds');
+  oddsUrl.searchParams.set('regions', 'us'); oddsUrl.searchParams.set('markets', 'totals,alternate_totals');
+  oddsUrl.searchParams.set('oddsFormat', 'american'); oddsUrl.searchParams.set('dateFormat', 'iso');
+  oddsUrl.searchParams.set('apiKey', ODDS_API_KEY);
   const mlbUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${todayPT()}&hydrate=linescore,team,game,flags,status`;
   try {
     const [oddsResp, mlbResp] = await Promise.all([
-      fetch(oddsUrl, { headers: { "User-Agent": "SalamiSlider/1.2" } }),
-      fetch(mlbUrl,  { headers: { "User-Agent": "SalamiSlider/1.2" } }),
+      fetch(oddsUrl, { headers: { 'User-Agent': 'SalamiSlider/1.2' } }),
+      fetch(mlbUrl,  { headers: { 'User-Agent': 'SalamiSlider/1.2' } }),
     ]);
     if (!oddsResp.ok) throw new Error(`Odds API ${oddsResp.status}`);
     if (!mlbResp.ok) throw new Error(`MLB upstream ${mlbResp.status}`);
@@ -99,13 +99,13 @@ app.get("/api/projected-runs", async (_req, res) => {
       const allPts = [], allAdjPts = [], livePts = [], liveAdjPts = [];
       const liveMain = [], preMain = [], liveAlts = [], preAlts = [];
       for (const bk of ev.bookmakers ?? []) {
-        const m = (bk.markets ?? []).find(x => x.key === "totals");
-        const mAlt = (bk.markets ?? []).find(x => x.key === "alternate_totals");
+        const m = (bk.markets ?? []).find(x => x.key === 'totals');
+        const mAlt = (bk.markets ?? []).find(x => x.key === 'alternate_totals');
         if (m) {
           const over  = (m.outcomes ?? []).find(o => /over/i.test(o.name));
           const under = (m.outcomes ?? []).find(o => /under/i.test(o.name));
           const pt = over?.point ?? under?.point;
-          if (typeof pt === "number") {
+          if (typeof pt === 'number') {
             const pOverRaw  = americanToProb(over?.price);
             const pUnderRaw = americanToProb(under?.price);
             const dv = devigTwoWay(pOverRaw, pUnderRaw);
@@ -123,7 +123,7 @@ app.get("/api/projected-runs", async (_req, res) => {
           const isLiveAlt = started && recent(lastUpdAlt);
           const byPoint = new Map();
           for (const o of mAlt.outcomes ?? []) {
-            const p = o.point; if (typeof p !== "number") continue;
+            const p = o.point; if (typeof p !== 'number') continue;
             const key = String(p);
             const cur = byPoint.get(key) || { point: p };
             if (/over/i.test(o.name)) cur.over = o.price;
@@ -147,7 +147,7 @@ app.get("/api/projected-runs", async (_req, res) => {
       if (!usedRaw.length) continue;
       const mlbMatch = findMlb(ev);
       const runsNow = mlbMatch?.runsNow ?? 0;
-      const mlbState = mlbMatch?.state ?? (started ? "Live" : "Preview");
+      const mlbState = mlbMatch?.state ?? (started ? 'Live' : 'Preview');
       const adjMean = Number(mean(usedAdj).toFixed(2));
       const remain = adjMean - runsNow;
       games.push({
@@ -157,14 +157,14 @@ app.get("/api/projected-runs", async (_req, res) => {
         consensus_total_adj: adjMean, consensus_std: Number(std(usedRaw).toFixed(2)),
         current_runs: runsNow, expected_remaining_raw: Number(remain.toFixed(2)),
         expected_remaining: Number(Math.max(0, remain).toFixed(2)),
-        liveMain, preMain, liveAlts, preAlts
+        liveMain, preMain, liveAlts, preAlts,
       });
     }
     const sumAdjAll = Number(games.reduce((s,g)=> s + (g.consensus_total_adj ?? g.consensus_total), 0).toFixed(2));
     const projectedRuns = Number(sumAdjAll.toFixed(1));
     const actualRunsToday = mlbGames.reduce((s, g) => s + (g.runsNow || 0), 0);
     const remainingExpected = Number(
-      games.filter(g => g.status !== "Final").reduce((s,g)=> s + (g.expected_remaining || 0), 0).toFixed(2)
+      games.filter(g => g.status !== 'Final').reduce((s,g)=> s + (g.expected_remaining || 0), 0).toFixed(2)
     );
     const projectedFinish = Number((actualRunsToday + remainingExpected).toFixed(2));
     const projectedStd  = Number(Math.sqrt(games.reduce((s, g) => s + (g.consensus_std ** 2 || 0), 0)).toFixed(1));
@@ -174,29 +174,29 @@ app.get("/api/projected-runs", async (_req, res) => {
       datePT: today, projectedRuns_raw: projectedRuns, projectedRuns,
       projectedStd, bandLow, bandHigh, gameCountUsed: games.length, games,
       actualRunsToday, remainingExpected, projectedFinish,
-      source: "The Odds API + MLB Stats API (live-aware, juice-adjusted)",
+      source: 'The Odds API + MLB Stats API (live-aware, juice-adjusted)',
       lastUpdateUtc: new Date().toISOString(),
       diag: { sumAdjAll: projectedRuns, gamesPreview: games.filter(g=>g.status==='Preview').length, gamesLive: games.filter(g=>g.status==='Live').length, gamesFinal: games.filter(g=>g.status==='Final').length },
-      config: { windowStartPT: WINDOW_START_PT, windowEndPT: WINDOW_END_PT, cacheMinutes: PROJ_TTL_MS/60000, liveRecentMinutes: LIVE_RECENT_MIN, juiceToRuns: JUICE_TO_RUNS }
+      config: { windowStartPT: WINDOW_START_PT, windowEndPT: WINDOW_END_PT, cacheMinutes: PROJ_TTL_MS/60000, liveRecentMinutes: LIVE_RECENT_MIN, juiceToRuns: JUICE_TO_RUNS },
     };
     projCache = { ts: now, payload };
     res.json(payload);
   } catch (e) { res.status(502).json({ error: String(e) }); }
 });
-app.get("/api/projection", async (_req, res) => {
+app.get('/api/projection', async (_req, res) => {
   const ODDS_API_KEY = process.env.ODDS_API_KEY;
-  if (!ODDS_API_KEY) return res.status(500).json({ error: "Missing ODDS_API_KEY" });
-  const oddsUrl = new URL("https://api.the-odds-api.com/v4/sports/baseball_mlb/odds");
-  oddsUrl.searchParams.set("regions", "us");
-  oddsUrl.searchParams.set("markets", "totals,alternate_totals");
-  oddsUrl.searchParams.set("oddsFormat", "american");
-  oddsUrl.searchParams.set("dateFormat", "iso");
-  oddsUrl.searchParams.set("apiKey", ODDS_API_KEY);
+  if (!ODDS_API_KEY) return res.status(500).json({ error: 'Missing ODDS_API_KEY' });
+  const oddsUrl = new URL('https://api.the-odds-api.com/v4/sports/baseball_mlb/odds');
+  oddsUrl.searchParams.set('regions', 'us');
+  oddsUrl.searchParams.set('markets', 'totals,alternate_totals');
+  oddsUrl.searchParams.set('oddsFormat', 'american');
+  oddsUrl.searchParams.set('dateFormat', 'iso');
+  oddsUrl.searchParams.set('apiKey', ODDS_API_KEY);
   const mlbUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${todayPT()}&hydrate=linescore,team,game,flags,status`;
   try {
     const [oddsResp, mlbResp] = await Promise.all([
-      fetch(oddsUrl, { headers: { "User-Agent": "SalamiSlider/1.2" } }),
-      fetch(mlbUrl,  { headers: { "User-Agent": "SalamiSlider/1.2" } }),
+      fetch(oddsUrl, { headers: { 'User-Agent': 'SalamiSlider/1.2' } }),
+      fetch(mlbUrl,  { headers: { 'User-Agent': 'SalamiSlider/1.2' } }),
     ]);
     if (!oddsResp.ok) throw new Error(`Odds API ${oddsResp.status}`);
     if (!mlbResp.ok) throw new Error(`MLB upstream ${mlbResp.status}`);
@@ -221,7 +221,7 @@ app.get("/api/projection", async (_req, res) => {
       const markets = [];
       for (const bk of ev.bookmakers ?? []) {
         for (const m of bk.markets ?? []) {
-          if (m.key === "totals" || m.key === "alternate_totals") markets.push(m);
+          if (m.key === 'totals' || m.key === 'alternate_totals') markets.push(m);
         }
       }
       games.push({ state: match.state, runsSoFar: match.runsSoFar, markets });
@@ -230,29 +230,29 @@ app.get("/api/projection", async (_req, res) => {
     res.json(result);
   } catch (e) { res.status(502).json({ error: String(e) }); }
 });
-app.get("/api/scoreboard", async (req, res) => {
+app.get('/api/scoreboard', async (req, res) => {
   const date = req.query.date || todayPT();
   const url = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${date}&hydrate=linescore,team,game,flags,status`;
   try {
-    const r = await fetch(url, { headers: { "User-Agent": "SalamiSlider/1.2" } });
+    const r = await fetch(url, { headers: { 'User-Agent': 'SalamiSlider/1.2' } });
     if (!r.ok) throw new Error(`MLB upstream ${r.status}`);
     const data = await r.json();
     const games = data?.dates?.[0]?.games ?? [];
     const items = games.map((g) => {
-      const home = g.teams?.home?.team?.abbreviation || g.teams?.home?.team?.name || "HOME";
-      const away = g.teams?.away?.team?.abbreviation || g.teams?.away?.team?.name || "AWAY";
+      const home = g.teams?.home?.team?.abbreviation || g.teams?.home?.team?.name || 'HOME';
+      const away = g.teams?.away?.team?.abbreviation || g.teams?.away?.team?.name || 'AWAY';
       const hs = g.linescore?.teams?.home?.runs ?? 0;
       const as = g.linescore?.teams?.away?.runs ?? 0;
       const state = g.status?.abstractGameState;
       const detailed = g.status?.detailedState;
-      let tag = "";
-      if (state === "Preview") tag = "Scheduled";
-      else if (state === "Live") { const inning = g.linescore?.currentInning; const half = g.linescore?.isTopInning ? "Top" : "Bot"; const outs = g.linescore?.outs ?? 0; tag = `${half} ${inning}, ${outs} out${outs === 1 ? "" : "s"}`; }
-      else if (state === "Final") { const ord = g.linescore?.currentInningOrdinal || "F"; tag = ord; }
-      else tag = detailed || state || "";
+      let tag = '';
+      if (state === 'Preview') tag = 'Scheduled';
+      else if (state === 'Live') { const inning = g.linescore?.currentInning; const half = g.linescore?.isTopInning ? 'Top' : 'Bot'; const outs = g.linescore?.outs ?? 0; tag = `${half} ${inning}, ${outs} out${outs === 1 ? '' : 's'}`; }
+      else if (state === 'Final') { const ord = g.linescore?.currentInningOrdinal || 'F'; tag = ord; }
+      else tag = detailed || state || '';
       return { id: g.gamePk, away, as, home, hs, state, tag };
     });
-    const ord = (s) => (s === "Live" ? 0 : s === "Preview" ? 1 : 2);
+    const ord = (s) => (s === 'Live' ? 0 : s === 'Preview' ? 1 : 2);
     items.sort((a, b) => ord(a.state) - ord(b.state));
     res.json({ date, items, lastUpdateUtc: new Date().toISOString() });
   } catch (e) { res.status(502).json({ error: String(e) }); }
