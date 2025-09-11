@@ -164,6 +164,11 @@
             const rem = Number(g.expected_remaining||0).toFixed(2);
             return `${g.away_team || g.away} @ ${g.home_team || g.home}: ${Number(adj).toFixed(2)} | now ${now} | exp rem ${rem} (${g.status})`;
           }).join(' · ');
+
+        const lean = (typeof p.projectedRuns === 'number' && typeof p.projectedRuns_raw === 'number')
+          ? (p.projectedRuns - p.projectedRuns_raw).toFixed(2)
+          : '—';
+        setText('lean', lean);
       }catch(e){ console.error(e); }
     }
 
