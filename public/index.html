@@ -4,31 +4,24 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Salami Slider — by The Juice Junkies</title>
-  <style>body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#e8eaee;background:#0c0d10}header{display:flex;align-items:center;gap:14px;padding:.6rem 1rem;background:#111;border-bottom:1px solid #242833}.wrap{max-width:1100px;margin:0 auto;padding:1rem}.card{background:#151821;border:1px solid #2b2f3a;border-radius:12px;padding:1rem;margin-bottom:12px}.big{font-size:64px;font-weight:800}#oulist{color:#a6adbb}</style>
+  <style>body{font-family:Arial,Helvetica,sans-serif;margin:0;color:#e8eaee;background:#0c0d10}header{display:flex;align-items:center;gap:14px;padding:.6rem 1rem;background:#111;border-bottom:1px solid #242833}.wrap{max-width:1100px;margin:0 auto;padding:1rem}.card{background:#151821;border:1px solid #2b2f3a;border-radius:12px;padding:1rem;margin-bottom:12px}.big{font-size:64px;font-weight:800}</style>
 </head>
 <body>
   <header><img src="juice-junkies-logo.png" alt="Juice Junkies Logo" style="height:54px;width:auto"><div style="margin-left:auto;color:#a6adbb">Live MLB Daily Total</div></header>
   <main class="wrap">
-    <div class="card"><div>Total MLB Runs Today</div><div class="big" id="total">—</div><div>Date: <b id="date">—</b> • Games: <b id="games">—</b> • Updated: <span id="updated">—</span></div></div>
-    <div class="card"><div>Projected Total (juice-adjusted)</div><div style="font-size:40px;font-weight:800" id="proj">—</div><div>Band ±1σ: <b id="band">—</b> • Market lean: <b id="lean">—</b></div><div style="margin-top:.4rem">Actual: <b id="actual">0</b> • Projected: <b id="proj2">—</b> (<span id="pct">0%</span>)</div><div style="height:22px;border-radius:999px;border:1px solid #2b2f3a;overflow:hidden;margin-top:.4rem"><div id="bar" style="height:100%;width:0%;background:linear-gradient(90deg,#ffd166,#ff6a3d,#ff3b3b)"></div></div></div>
-    <div class="card"><div>Projected Slate Finish (Actual + Expected Remaining)</div><div style="font-size:40px;font-weight:800" id="projFinish">—</div><div>Actual today: <b id="actualToday">—</b> • Expected remaining: <b id="remainingExp">—</b></div><div id="diagLine" style="color:#a6adbb;margin-top:.3rem"></div></div>
-    <div class="card"><div>Consensus Totals (Per Game)</div><div id="oulist">—</div></div>
+    <div class="card"><div>Total MLB Runs Today</div><div class="big" id="total">—</div><div>Updated: <span id="updated">—</span></div></div>
+    <div class="card"><div>Projected Slate Finish</div><div class="big" id="projFinish">—</div></div>
   </main>
   <script>
     const $=id=>document.getElementById(id), setText=(id,v)=>($(id).textContent=v);
     function fmtPT(d){ return new Intl.DateTimeFormat('en-US',{ timeZone:'America/Los_Angeles', hour:'2-digit', minute:'2-digit', second:'2-digit' }).format(d); }
-    async function getActual(){ const r = await fetch(`/api/total-runs`); if(!r.ok) throw new Error('actual'); return r.json(); }
-    async function getProj(){ const r = await fetch(`/api/projected-runs`); if(!r.ok) throw new Error('proj'); return r.json(); }
+    async function getProj(){ const r = await fetch(`/api/projection`); if(!r.ok) throw new Error('proj'); return r.json(); }
     async function go(){
       try{
-        const [a,p] = await Promise.all([getActual(), getProj()]);
-        const actual=a.totalRuns??0, projAdj=p.projectedRuns??0, projRaw=p.projectedRuns_raw??projAdj, low=p.bandLow??projAdj, high=p.bandHigh??projAdj;
-        setText('total',actual); setText('actual',actual); setText('games',a.gamesCount??'0'); setText('date',a.date??'—'); setText('updated',fmtPT(new Date()));
-        setText('proj',Number(projAdj).toFixed(1)); setText('proj2',Number(projAdj).toFixed(1)); setText('band',`${Number(low).toFixed(1)} – ${Number(high).toFixed(1)}`); setText('lean',`${(projAdj-projRaw)>=0?'+':''}${Number(projAdj-projRaw).toFixed(1)} runs`);
-        const pct=projAdj>0?Math.min(150,(actual/projAdj)*100):0; $('bar').style.width=`${pct.toFixed(1)}%`; setText('pct',`${(actual&&projAdj)?pct.toFixed(0):0}%`);
-        setText('projFinish', Number(p.projectedFinish||0).toFixed(2)); setText('actualToday', Number(p.actualRunsToday||0).toFixed(0)); setText('remainingExp', Number(p.remainingExpected||0).toFixed(2));
-        const d=p.diag||{}; $('diagLine').textContent=`Using ${p.gameCountUsed||0} games — Preview:${d.gamesPreview||0} Live:${d.gamesLive||0} Final:${d.gamesFinal||0}`;
-        $('oulist').textContent=(p.games||[]).map(g=>{const adj=g.consensus_total_adj??g.consensus_total;const now=Number(g.current_runs||0).toFixed(0);const rem=Number(g.expected_remaining||0).toFixed(2);return `${g.away_team||g.away} @ ${g.home_team||g.home}: ${Number(adj).toFixed(2)} | now ${now} | exp rem ${rem} (${g.status})`;}).join(' · ');
+        const p = await getProj();
+        setText('total', p.totalRunsScored ?? 0);
+        setText('projFinish', Number(p.projectedSlateFinish || 0).toFixed(2));
+        setText('updated', fmtPT(new Date()));
       }catch(e){ console.error(e); }
     }
     go(); setInterval(go,15000);
