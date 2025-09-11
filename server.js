@@ -20,6 +20,29 @@ const std  = (a) => { if (a.length < 2) return 0; const m = mean(a); return Math
 function americanToProb(american) { if (american == null) return null; const a = Number(american); if (Number.isNaN(a)) return null; return a < 0 ? (-a) / ((-a) + 100) : 100 / (a + 100); }
 function devigTwoWay(pOverRaw, pUnderRaw) { if (pOverRaw == null || pUnderRaw == null) return null; const sum = pOverRaw + pUnderRaw; if (sum <= 0) return null; return { pOver: pOverRaw / sum, pUnder: pUnderRaw / sum }; }
 const norm = (s) => (s||"").toLowerCase().replace(/[^a-z]/g,"");
+function computeTwoNumbers(games) {
+  let totalRunsScored = 0;
+  let projectedSlateFinish = 0;
+  for (const g of games) {
+    totalRunsScored += g.runsSoFar || 0;
+    const pts = [];
+    for (const m of g.markets || []) {
+      const over  = (m.outcomes ?? []).find(o => /over/i.test(o.name));
+      const under = (m.outcomes ?? []).find(o => /under/i.test(o.name));
+      const pt = over?.point ?? under?.point;
+      const pOverRaw  = americanToProb(over?.price);
+      const pUnderRaw = americanToProb(under?.price);
+      const dv = devigTwoWay(pOverRaw, pUnderRaw);
+      const skew = dv ? (dv.pOver - 0.5) : 0;
+      if (typeof pt === "number") pts.push(pt + skew * JUICE_TO_RUNS);
+    }
+    const consensus = pts.length ? pts.reduce((s,x)=>s+x,0)/pts.length : g.runsSoFar || 0;
+    const remain = g.state === "Final" ? 0 : Math.max(0, consensus - g.runsSoFar);
+    g.consensusTotal = Number(consensus.toFixed(2));
+    projectedSlateFinish += g.runsSoFar + remain;
+  }
+  return { totalRunsScored, projectedSlateFinish: Number(projectedSlateFinish.toFixed(2)), games };
+}
 app.use(express.static("public"));
 app.get("/health", (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 app.get("/api/total-runs", async (req, res) => {
@@ -125,6 +148,53 @@ app.get("/api/projected-runs", async (_req, res) => {
     };
     projCache = { ts: now, payload };
     res.json(payload);
+  } catch (e) { res.status(502).json({ error: String(e) }); }
+});
+app.get("/api/projection", async (_req, res) => {
+  const ODDS_API_KEY = process.env.ODDS_API_KEY;
+  if (!ODDS_API_KEY) return res.status(500).json({ error: "Missing ODDS_API_KEY" });
+  const oddsUrl = new URL("https://api.the-odds-api.com/v4/sports/baseball_mlb/odds");
+  oddsUrl.searchParams.set("regions", "us");
+  oddsUrl.searchParams.set("markets", "totals,alternate_totals");
+  oddsUrl.searchParams.set("oddsFormat", "american");
+  oddsUrl.searchParams.set("dateFormat", "iso");
+  oddsUrl.searchParams.set("apiKey", ODDS_API_KEY);
+  const mlbUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${todayPT()}&hydrate=linescore,team,game,flags,status`;
+  try {
+    const [oddsResp, mlbResp] = await Promise.all([
+      fetch(oddsUrl, { headers: { "User-Agent": "SalamiSlider/1.2" } }),
+      fetch(mlbUrl,  { headers: { "User-Agent": "SalamiSlider/1.2" } }),
+    ]);
+    if (!oddsResp.ok) throw new Error(`Odds API ${oddsResp.status}`);
+    if (!mlbResp.ok) throw new Error(`MLB upstream ${mlbResp.status}`);
+    const events = await oddsResp.json();
+    const mlb = await mlbResp.json();
+    const mlbGames = (mlb?.dates?.[0]?.games ?? []).map(g => ({
+      home: g.teams?.home?.team?.name, away: g.teams?.away?.team?.name,
+      homeAbb: g.teams?.home?.team?.abbreviation, awayAbb: g.teams?.away?.team?.abbreviation,
+      state: g.status?.abstractGameState,
+      runsSoFar: (g.linescore?.teams?.home?.runs ?? 0) + (g.linescore?.teams?.away?.runs ?? 0),
+    }));
+    const findMlb = (ev) => {
+      const h = norm(ev.home_team), a = norm(ev.away_team);
+      return mlbGames.find(g => (norm(g.home)+norm(g.homeAbb)).includes(h.slice(0,6)) &&
+                                 (norm(g.away)+norm(g.awayAbb)).includes(a.slice(0,6))) || null;
+    };
+    const games = [];
+    for (const ev of events) {
+      if (!samePTDay(ev.commence_time)) continue;
+      const match = findMlb(ev);
+      if (!match) continue;
+      const markets = [];
+      for (const bk of ev.bookmakers ?? []) {
+        for (const m of bk.markets ?? []) {
+          if (m.key === "totals" || m.key === "alternate_totals") markets.push(m);
+        }
+      }
+      games.push({ state: match.state, runsSoFar: match.runsSoFar, markets });
+    }
+    const result = computeTwoNumbers(games);
+    res.json(result);
   } catch (e) { res.status(502).json({ error: String(e) }); }
 });
 app.get("/api/scoreboard", async (req, res) => {
