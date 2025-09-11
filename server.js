@@ -175,8 +175,10 @@ async function computeProjectionPayload() {
   }
 
   // Rollups from the SAME game set
-  const sumAdjAll = Number(games.reduce((s,g)=> s + (g.consensus_total_adj ?? g.consensus_total), 0).toFixed(2));
+  const sumAdjAll = games.reduce((s,g)=> s + (g.consensus_total_adj ?? g.consensus_total), 0);
+  const sumRawAll = games.reduce((s,g)=> s + (g.consensus_total || 0), 0);
   const projectedRuns = Number(sumAdjAll.toFixed(1)); // headline projection (consistent)
+  const projectedRunsRaw = Number(sumRawAll.toFixed(2));
 
   const actualRunsToday = mlbGames.reduce((s, g) => s + (g.runsNow || 0), 0);
 
@@ -192,7 +194,7 @@ async function computeProjectionPayload() {
 
   const payload = {
     datePT: today,
-    projectedRuns_raw: projectedRuns,
+    projectedRuns_raw: projectedRunsRaw,
     projectedRuns,
     projectedStd, bandLow, bandHigh,
     gameCountUsed: games.length,
