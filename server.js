@@ -69,7 +69,7 @@ app.get("/api/projected-runs", async (_req, res) => {
   const ODDS_API_KEY = process.env.ODDS_API_KEY;
   if (!ODDS_API_KEY) return res.status(500).json({ error: "Missing ODDS_API_KEY" });
   const oddsUrl = new URL("https://api.the-odds-api.com/v4/sports/baseball_mlb/odds");
-  oddsUrl.searchParams.set("regions", "us"); oddsUrl.searchParams.set("markets", "totals");
+  oddsUrl.searchParams.set("regions", "us"); oddsUrl.searchParams.set("markets", "totals,alternate_totals");
   oddsUrl.searchParams.set("oddsFormat", "american"); oddsUrl.searchParams.set("dateFormat", "iso");
   oddsUrl.searchParams.set("apiKey", ODDS_API_KEY);
   const mlbUrl = `https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=${todayPT()}&hydrate=linescore,team,game,flags,status`;
@@ -97,18 +97,50 @@ app.get("/api/projected-runs", async (_req, res) => {
       if (!samePTDay(ev.commence_time)) continue;
       const started = new Date(ev.commence_time).getTime() <= Date.now();
       const allPts = [], allAdjPts = [], livePts = [], liveAdjPts = [];
+      const liveMain = [], preMain = [], liveAlts = [], preAlts = [];
       for (const bk of ev.bookmakers ?? []) {
-        const m = (bk.markets ?? []).find(x => x.key === "totals"); if (!m) continue;
-        const over  = (m.outcomes ?? []).find(o => /over/i.test(o.name));
-        const under = (m.outcomes ?? []).find(o => /under/i.test(o.name));
-        const pt = over?.point ?? under?.point; if (typeof pt !== "number") continue;
-        const pOverRaw  = americanToProb(over?.price);
-        const pUnderRaw = americanToProb(under?.price);
-        const dv = devigTwoWay(pOverRaw, pUnderRaw);
-        const skew = dv ? (dv.pOver - 0.5) : 0;
-        const adjPoint = pt + skew * JUICE_TO_RUNS;
-        allPts.push(pt); allAdjPts.push(adjPoint);
-        if (started) { const lastUpd = m.last_update || bk.last_update || null; if (recent(lastUpd)) { livePts.push(pt); liveAdjPts.push(adjPoint); } }
+        const m = (bk.markets ?? []).find(x => x.key === "totals");
+        const mAlt = (bk.markets ?? []).find(x => x.key === "alternate_totals");
+        if (m) {
+          const over  = (m.outcomes ?? []).find(o => /over/i.test(o.name));
+          const under = (m.outcomes ?? []).find(o => /under/i.test(o.name));
+          const pt = over?.point ?? under?.point;
+          if (typeof pt === "number") {
+            const pOverRaw  = americanToProb(over?.price);
+            const pUnderRaw = americanToProb(under?.price);
+            const dv = devigTwoWay(pOverRaw, pUnderRaw);
+            const skew = dv ? (dv.pOver - 0.5) : 0;
+            const adjPoint = pt + skew * JUICE_TO_RUNS;
+            allPts.push(pt); allAdjPts.push(adjPoint);
+            const lastUpd = m.last_update || bk.last_update || null;
+            const isLive = started && recent(lastUpd);
+            if (isLive) { livePts.push(pt); liveAdjPts.push(adjPoint); liveMain.push({ book: bk.key, point: pt, over: over?.price ?? null, under: under?.price ?? null, adjPoint }); }
+            else { preMain.push({ book: bk.key, point: pt, over: over?.price ?? null, under: under?.price ?? null, adjPoint }); }
+          }
+        }
+        if (mAlt) {
+          const lastUpdAlt = mAlt.last_update || bk.last_update || null;
+          const isLiveAlt = started && recent(lastUpdAlt);
+          const byPoint = new Map();
+          for (const o of mAlt.outcomes ?? []) {
+            const p = o.point; if (typeof p !== "number") continue;
+            const key = String(p);
+            const cur = byPoint.get(key) || { point: p };
+            if (/over/i.test(o.name)) cur.over = o.price;
+            else if (/under/i.test(o.name)) cur.under = o.price;
+            byPoint.set(key, cur);
+          }
+          for (const { point, over, under } of byPoint.values()) {
+            if (over == null || under == null) continue;
+            const pOverRaw = americanToProb(over);
+            const pUnderRaw = americanToProb(under);
+            const dv = devigTwoWay(pOverRaw, pUnderRaw);
+            const skew = dv ? (dv.pOver - 0.5) : 0;
+            const adjPoint = point + skew * JUICE_TO_RUNS;
+            const entry = { book: bk.key, point, over, under, adjPoint };
+            if (isLiveAlt) liveAlts.push(entry); else preAlts.push(entry);
+          }
+        }
       }
       const usedRaw = (started && livePts.length) ? livePts : allPts;
       const usedAdj = (started && liveAdjPts.length) ? liveAdjPts : allAdjPts;
@@ -124,7 +156,8 @@ app.get("/api/projected-runs", async (_req, res) => {
         consensus_total: Number(mean(usedRaw).toFixed(2)),
         consensus_total_adj: adjMean, consensus_std: Number(std(usedRaw).toFixed(2)),
         current_runs: runsNow, expected_remaining_raw: Number(remain.toFixed(2)),
-        expected_remaining: Number(Math.max(0, remain).toFixed(2))
+        expected_remaining: Number(Math.max(0, remain).toFixed(2)),
+        liveMain, preMain, liveAlts, preAlts
       });
     }
     const sumAdjAll = Number(games.reduce((s,g)=> s + (g.consensus_total_adj ?? g.consensus_total), 0).toFixed(2));
