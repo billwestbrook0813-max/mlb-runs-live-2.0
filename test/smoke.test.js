@@ -8,10 +8,10 @@ const PORT = 3001;
 // Smoke test to ensure the server starts and responds to /health
 // Uses a separate port to avoid conflicts.
 test('server responds to /health', async (t) => {
-  const proc = spawn('node', ['server.js'], {
-    env: { ...process.env, PORT },
-    stdio: 'ignore'
-  });
+    const proc = spawn('node', ['server.js'], {
+      env: { ...process.env, PORT },
+      stdio: 'ignore',
+    });
   t.after(() => proc.kill());
 
   // Give the server a moment to start

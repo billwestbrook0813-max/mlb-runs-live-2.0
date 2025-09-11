@@ -150,15 +150,15 @@ app.get("/api/projected-runs", async (_req, res) => {
       const mlbState = mlbMatch?.state ?? (started ? "Live" : "Preview");
       const adjMean = Number(mean(usedAdj).toFixed(2));
       const remain = adjMean - runsNow;
-      games.push({
-        id: ev.id, status: mlbState, commence_time: ev.commence_time,
-        home_team: ev.home_team, away_team: ev.away_team, bookmakers_count: usedRaw.length,
-        consensus_total: Number(mean(usedRaw).toFixed(2)),
-        consensus_total_adj: adjMean, consensus_std: Number(std(usedRaw).toFixed(2)),
-        current_runs: runsNow, expected_remaining_raw: Number(remain.toFixed(2)),
-        expected_remaining: Number(Math.max(0, remain).toFixed(2)),
-        liveMain, preMain, liveAlts, preAlts
-      });
+        games.push({
+          id: ev.id, status: mlbState, commence_time: ev.commence_time,
+          home_team: ev.home_team, away_team: ev.away_team, bookmakers_count: usedRaw.length,
+          consensus_total: Number(mean(usedRaw).toFixed(2)),
+          consensus_total_adj: adjMean, consensus_std: Number(std(usedRaw).toFixed(2)),
+          current_runs: runsNow, expected_remaining_raw: Number(remain.toFixed(2)),
+          expected_remaining: Number(Math.max(0, remain).toFixed(2)),
+          liveMain, preMain, liveAlts, preAlts,
+        });
     }
     const sumAdjAll = Number(games.reduce((s,g)=> s + (g.consensus_total_adj ?? g.consensus_total), 0).toFixed(2));
     const projectedRuns = Number(sumAdjAll.toFixed(1));
@@ -176,9 +176,15 @@ app.get("/api/projected-runs", async (_req, res) => {
       actualRunsToday, remainingExpected, projectedFinish,
       source: "The Odds API + MLB Stats API (live-aware, juice-adjusted)",
       lastUpdateUtc: new Date().toISOString(),
-      diag: { sumAdjAll: projectedRuns, gamesPreview: games.filter(g=>g.status==='Preview').length, gamesLive: games.filter(g=>g.status==='Live').length, gamesFinal: games.filter(g=>g.status==='Final').length },
-      config: { windowStartPT: WINDOW_START_PT, windowEndPT: WINDOW_END_PT, cacheMinutes: PROJ_TTL_MS/60000, liveRecentMinutes: LIVE_RECENT_MIN, juiceToRuns: JUICE_TO_RUNS }
-    };
+        diag: { sumAdjAll: projectedRuns, gamesPreview: games.filter(g=>g.status==='Preview').length, gamesLive: games.filter(g=>g.status==='Live').length, gamesFinal: games.filter(g=>g.status==='Final').length },
+        config: {
+          windowStartPT: WINDOW_START_PT,
+          windowEndPT: WINDOW_END_PT,
+          cacheMinutes: PROJ_TTL_MS/60000,
+          liveRecentMinutes: LIVE_RECENT_MIN,
+          juiceToRuns: JUICE_TO_RUNS,
+        },
+      };
     projCache = { ts: now, payload };
     res.json(payload);
   } catch (e) { res.status(502).json({ error: String(e) }); }
